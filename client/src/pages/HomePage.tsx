@@ -1,6 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navbar } from '@/components/navbar'
-import { FilterSidebar } from '@/components/filter-sidebar'
+import {
+  FilterSidebar,
+  FILTER_CATEGORIES,
+  FILTER_SKILL_LEVELS,
+  FILTER_TEAM_SIZES,
+  type FilterOption,
+} from '@/components/filter-sidebar'
 import { ProjectCard, type Project } from '@/components/project-card'
 import {
   Pagination,
@@ -14,6 +20,18 @@ import {
 import { cn } from '@/lib/utils'
 import { API_BASE_URL } from '@/lib/api-config'
 import { useSearch } from '@/lib/search-context'
+
+// Build {id, label} → lowercase-string lookup so a project record can be checked
+// against either the option id ("web-dev") or its human label ("Web Development").
+function buildAcceptedValues(options: FilterOption[], selectedIds: string[]): Set<string> {
+  const accepted = new Set<string>()
+  for (const id of selectedIds) {
+    accepted.add(id.toLowerCase())
+    const match = options.find((o) => o.id === id)
+    if (match) accepted.add(match.label.toLowerCase())
+  }
+  return accepted
+}
 
 const PAGE_SIZE = 6
 
@@ -42,6 +60,10 @@ export function HomePage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
 
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
+  const [selectedSkillLevels, setSelectedSkillLevels] = useState<string[]>([])
+  const [selectedTeamSizes, setSelectedTeamSizes] = useState<string[]>([])
+
   useEffect(() => {
     const fetchProjects = async () => {
       setLoading(true)
@@ -68,25 +90,79 @@ export function HomePage() {
     void fetchProjects()
   }, [])
 
+  const toggleIn = useCallback(
+    (set: (updater: (prev: string[]) => string[]) => void) => (id: string) => {
+      set((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      )
+    },
+    [],
+  )
+
+  const clearAllFilters = useCallback(() => {
+    setSelectedCategories([])
+    setSelectedSkillLevels([])
+    setSelectedTeamSizes([])
+    setPage(1)
+  }, [])
+
   useEffect(() => {
     setPage(1)
   }, [searchQuery])
 
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return projects
+    const acceptedCategories = buildAcceptedValues(FILTER_CATEGORIES, selectedCategories)
+    const acceptedSkillLevels = buildAcceptedValues(FILTER_SKILL_LEVELS, selectedSkillLevels)
+    const acceptedTeamSizes = buildAcceptedValues(FILTER_TEAM_SIZES, selectedTeamSizes)
+    const query = searchQuery.trim().toLowerCase()
 
-    const query = searchQuery.toLowerCase()
     return projects.filter((project) => {
-      const tags = [...project.roles, ...project.skills, ...project.technologies]
-      const ownerName = project.owner?.name ?? ''
-      return (
-        project.title.toLowerCase().includes(query) ||
-        project.description.toLowerCase().includes(query) ||
-        tags.some((tag) => tag.toLowerCase().includes(query)) ||
-        ownerName.toLowerCase().includes(query)
-      )
+      const allTags = [
+        ...project.roles,
+        ...project.skills,
+        ...project.technologies,
+      ].map((t) => t.toLowerCase())
+
+      // Category checkbox should match any tag in the project record (roles/skills/technologies).
+      if (acceptedCategories.size > 0) {
+        const hasCategory = allTags.some((t) => acceptedCategories.has(t))
+        if (!hasCategory) return false
+      }
+
+      // CreateProjectPage writes the skill level into `grade`.
+      if (acceptedSkillLevels.size > 0) {
+        const grade = (project.grade ?? '').toLowerCase()
+        if (!acceptedSkillLevels.has(grade)) return false
+      }
+
+      // Team size also lives in the tag arrays today (CreateProjectPage puts it in `skills`).
+      if (acceptedTeamSizes.size > 0) {
+        const hasTeamSize = allTags.some((t) => acceptedTeamSizes.has(t))
+        if (!hasTeamSize) return false
+      }
+
+      if (query) {
+        const ownerName = project.owner?.name ?? ''
+        const matchesSearch =
+          project.title.toLowerCase().includes(query) ||
+          project.description.toLowerCase().includes(query) ||
+          allTags.some((tag) => tag.includes(query)) ||
+          ownerName.toLowerCase().includes(query)
+        if (!matchesSearch) return false
+      }
+
+      return true
     })
-  }, [searchQuery, projects])
+  }, [
+    projects,
+    searchQuery,
+    selectedCategories,
+    selectedSkillLevels,
+    selectedTeamSizes,
+  ])
+
+  const hasActiveFilters =
+    selectedCategories.length + selectedSkillLevels.length + selectedTeamSizes.length > 0
 
   const totalPages = Math.max(1, Math.ceil(filteredProjects.length / PAGE_SIZE))
   const effectivePage = Math.min(page, totalPages)
@@ -127,7 +203,15 @@ export function HomePage() {
       <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col gap-8 lg:flex-row">
           <div className="w-full shrink-0 lg:w-72">
-            <FilterSidebar />
+            <FilterSidebar
+              selectedCategories={selectedCategories}
+              onCategoryToggle={toggleIn(setSelectedCategories)}
+              selectedSkillLevels={selectedSkillLevels}
+              onSkillLevelToggle={toggleIn(setSelectedSkillLevels)}
+              selectedTeamSizes={selectedTeamSizes}
+              onTeamSizeToggle={toggleIn(setSelectedTeamSizes)}
+              onClear={clearAllFilters}
+            />
           </div>
           <div className="flex-1 space-y-6">
             {loading && (
@@ -143,9 +227,10 @@ export function HomePage() {
                 </p>
               </div>
             )}
-            {!loading && !loadError && searchQuery && (
+            {!loading && !loadError && (searchQuery || hasActiveFilters) && (
               <p className="text-sm text-muted-foreground">
-                {filteredProjects.length} result{filteredProjects.length !== 1 ? 's' : ''} for &quot;{searchQuery}&quot;
+                {filteredProjects.length} result{filteredProjects.length !== 1 ? 's' : ''}
+                {searchQuery ? ` for "${searchQuery}"` : ''}
               </p>
             )}
             {!loading && !loadError && filteredProjects.length > 0 && (
@@ -224,8 +309,8 @@ export function HomePage() {
             {!loading && !loadError && filteredProjects.length === 0 && (
               <div className="rounded-lg border border-dashed border-border p-12 text-center">
                 <p className="text-muted-foreground">
-                  {searchQuery.trim()
-                    ? 'No projects found matching your search.'
+                  {searchQuery.trim() || hasActiveFilters
+                    ? 'No projects match your filters.'
                     : 'No projects yet. Create one after signing in.'}
                 </p>
               </div>

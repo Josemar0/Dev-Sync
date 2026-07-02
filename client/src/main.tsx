@@ -19,6 +19,7 @@ import { ManageProjectsPage } from './pages/ManageProjectsPage'
 import { PopularPage } from './pages/PopularPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { ProjectPage } from './pages/ProjectPage'
+import { UserProfilePage } from './pages/UserProfilePage'
 import { ShowcasePage } from './pages/ShowcasePage'
 
 function RootLayout() {
@@ -40,6 +41,7 @@ const router = createBrowserRouter([
       { path: '/create-project', element: <CreateProjectPage /> },
       { path: '/manage-projects', element: <ManageProjectsPage /> },
       { path: '/profile', element: <ProfilePage /> },
+      { path: '/users/:userId', element: <UserProfilePage /> },
       { path: '/project/:id', element: <ProjectPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],

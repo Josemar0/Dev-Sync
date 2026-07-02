@@ -25,8 +25,8 @@ from app.models.account import Account
 from app.models.application import Application
 from app.models.comment import Comment
 from app.routes import router
-from app.schemas.account import AccountCreate, AccountRead
-from app.schemas.application import ApplicationCreate, ApplicationRead, ProjectOwnerView
+from app.schemas.account import AccountCreate, AccountRead, AccountUpdate
+from app.schemas.application import ApplicationCreate, ApplicationRead, ApplicantView, ProjectOwnerView
 from app.schemas.comment import CommentCreate, CommentRead
 from app.schemas.projects import ProjectCreate, ProjectRead
 from app.models.notifcation import Notification
@@ -51,6 +51,7 @@ from app.services.notifications import (
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-in-env")
 ALGORITHM = "HS256"
+FRONTEND_URL = os.getenv("FRONTEND_URL")
 
 # Supabase Dashboard → Settings → API → JWT Secret (read-only). Used only on the server to mint
 # short-lived Realtime tokens; must NOT match JWT_SECRET_KEY.
@@ -65,7 +66,11 @@ logger = logging.getLogger(__name__)
 
 def _cors_allow_origins() -> list[str]:
     """Browser origins allowed for credentialed API calls (Vite dev default + optional LAN/extra from env)."""
-    defaults = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://dev-sync-55mh.onrender.com",
+    ]
     raw = os.getenv("CORS_ORIGINS", "").strip()
     if not raw:
         return defaults
@@ -82,6 +87,11 @@ def _cors_allow_origins() -> list[str]:
 _CORS_ORIGINS = _cors_allow_origins()
 if len(_CORS_ORIGINS) > 2:
     logger.info("CORS allow_origins extended: %s", _CORS_ORIGINS)
+
+# Optional regex for ephemeral origins (e.g. Vercel preview deploys at
+# `https://<project>-<hash>-<scope>.vercel.app`). Set CORS_ORIGIN_REGEX to a
+# Python regex string in the backend env to allow them; leave empty to disable.
+_CORS_ORIGIN_REGEX = os.getenv("CORS_ORIGIN_REGEX", "").strip() or None
 
 
 @asynccontextmanager
@@ -100,6 +110,7 @@ app.include_router(router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -126,6 +137,23 @@ class TokenData(BaseModel):
 class PasswordVerifyRequest(BaseModel):
     password: str
     hashed_password: str
+
+
+class PublicProfileStats(BaseModel):
+    created_projects: int
+    joined_projects: int
+    total_projects: int
+
+
+class PublicProfileResponse(BaseModel):
+    user: AccountRead
+    stats: PublicProfileStats
+    created_projects: list[ProjectRead]
+    joined_projects: list[ProjectRead]
+
+
+# _AVATAR_MAX_BYTES = 5 * 1024 * 1024
+# _AVATAR_ALLOWED_TYPES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
 
 
 async def _ws_send_json_safe(ws: WebSocket, payload: dict) -> None:
@@ -290,6 +318,25 @@ async def get_me(current_user: Annotated[Account, Depends(get_current_user)]):
     return current_user
 
 
+@app.patch("/user/me", response_model=AccountRead)
+async def update_me(
+    update: AccountUpdate,
+    current_user: Annotated[Account, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    # exclude_unset so missing keys leave the existing value alone (true partial update).
+    data = update.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(current_user, field, value)
+    try:
+        db.commit()
+        db.refresh(current_user)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not update profile")
+    return current_user
+
+
 @app.get("/realtime/token", response_model=RealtimeTokenOut)
 async def supabase_realtime_token(current_user: Annotated[Account, Depends(get_current_user)]):
     """Return a short-lived JWT that Supabase Realtime accepts for `postgres_changes` RLS.
@@ -339,6 +386,53 @@ async def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
     return user
 
 
+@app.get("/users/{user_id}/public-profile", response_model=PublicProfileResponse)
+async def get_public_profile(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(Account).filter(Account.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    created_projects = (
+        db.query(Project)
+        .filter(Project.user_id == user_id)
+        .filter(Project.is_deleted == False)
+        .options(
+            selectinload(Project.owner),
+            selectinload(Project.applications).selectinload(Application.user),
+            selectinload(Project.comments).selectinload(Comment.user),
+        )
+        .order_by(Project.created_at.desc())
+        .all()
+    )
+
+    joined_projects = (
+        db.query(Project)
+        .join(Application, Application.project_id == Project.project_id)
+        .filter(Application.user_id == user_id)
+        .filter(Application.status == "Accepted")
+        .filter(Project.is_deleted == False)
+        .filter(Project.user_id != user_id)
+        .options(
+            selectinload(Project.owner),
+            selectinload(Project.applications).selectinload(Application.user),
+            selectinload(Project.comments).selectinload(Comment.user),
+        )
+        .order_by(Project.created_at.desc())
+        .all()
+    )
+
+    return {
+        "user": user,
+        "stats": {
+            "created_projects": len(created_projects),
+            "joined_projects": len(joined_projects),
+            "total_projects": len(created_projects) + len(joined_projects),
+        },
+        "created_projects": created_projects,
+        "joined_projects": joined_projects,
+    }
+
+
 @app.post("/users", response_model=AccountRead)
 async def create_user(user_in: AccountCreate, db: Session = Depends(get_db)):
     existing_user = db.query(Account).filter(Account.email == user_in.email).first()
@@ -353,6 +447,7 @@ async def create_user(user_in: AccountCreate, db: Session = Depends(get_db)):
         roles=user_in.roles,
         technologies=user_in.technologies,
         skills=user_in.skills,
+        avatar=user_in.avatar,
         password_hash=hash_pwd(user_in.password),
     )
     db.add(new_user)
@@ -470,9 +565,11 @@ async def get_applications_to_my_projects(
         db.query(
             Application.user_id,
             Account.name.label("user_name"),
+            Account.avatar.label("user_avatar"),
             Application.project_id,
             Project.title.label("project_title"),
             Application.status,
+            Application.role,
             Application.created_at,
         )
         .join(Account, Account.user_id == Application.user_id)
@@ -487,8 +584,41 @@ async def get_applications_to_my_projects(
         {
             "user_id": r.user_id,
             "user_name": r.user_name,
+            "user_avatar": r.user_avatar,
             "project_id": r.project_id,
             "project_title": r.project_title,
+            "role": r.role,
+            "status": r.status,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+
+
+@app.get("/applications/me", response_model=list[ApplicantView])
+async def get_my_applications(
+    current_user: Annotated[Account, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(
+            Application.project_id,
+            Project.title.label("project_title"),
+            Application.role,
+            Application.status,
+            Application.created_at,
+        )
+        .join(Project, Project.project_id == Application.project_id)
+        .filter(Application.user_id == current_user.user_id)
+        .filter(Project.is_deleted == False)
+        .order_by(Application.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "project_id": r.project_id,
+            "project_title": r.project_title,
+            "role": r.role,
             "status": r.status,
             "created_at": r.created_at,
         }
@@ -625,10 +755,43 @@ async def create_application(
             detail="You already have an application for this project",
         )
 
+    project_roles = [r.strip() for r in (project.roles or []) if r and r.strip()]
+    selected_role = (application_in.role or "").strip()
+    if project_roles:
+        if not selected_role:
+            raise HTTPException(
+                status_code=400,
+                detail="Please select a role offered for this project",
+            )
+        if selected_role not in project_roles:
+            raise HTTPException(
+                status_code=400,
+                detail="Selected role is not offered for this project",
+            )
+        taken_apps = (
+            db.query(Application)
+            .filter(Application.project_id == application_in.project_id)
+            .filter(Application.status == "Accepted")
+            .all()
+        )
+        taken_roles = {
+            (a.role or "").strip()
+            for a in taken_apps
+            if (a.role or "").strip()
+        }
+        if selected_role in taken_roles:
+            raise HTTPException(
+                status_code=400,
+                detail="This role is no longer available for this project",
+            )
+    elif selected_role:
+        selected_role = None
+
     new_application = Application(
         user_id=current_user.user_id,
         project_id=application_in.project_id,
         status="Pending",
+        role=selected_role,
         content=application_in.content.strip(),
     )
     db.add(new_application)
@@ -705,34 +868,35 @@ async def create_comment(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    existing_comment = (
-        db.query(Comment)
-        .filter(
-            Comment.user_id == current_user.user_id,
-            Comment.project_id == comment_in.project_id,
+    # If this is a reply, ensure the parent exists and lives on the same project
+    # (prevents cross-project reply chains).
+    if comment_in.reply_to:
+        parent = (
+            db.query(Comment)
+            .filter(Comment.comment_id == comment_in.reply_to)
+            .first()
         )
-        .first()
-    )
-    if existing_comment:
-        raise HTTPException(
-            status_code=400,
-            detail="You have already posted a comment on this project",
-        )
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent comment not found")
+        if (parent.project_id or "").strip() != (comment_in.project_id or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot reply to a comment from a different project",
+            )
 
     new_comment = Comment(
+        comment_id=f"C{randrange(100000000, 999999999)}",
         user_id=current_user.user_id,
         project_id=comment_in.project_id,
         content=comment_in.content.strip(),
+        reply_to=comment_in.reply_to,
     )
     db.add(new_comment)
     db.commit()
     db.refresh(new_comment)
     return (
         db.query(Comment)
-        .filter(
-            Comment.user_id == new_comment.user_id,
-            Comment.project_id == new_comment.project_id,
-        )
+        .filter(Comment.comment_id == new_comment.comment_id)
         .options(selectinload(Comment.user))
         .first()
     )
@@ -809,6 +973,7 @@ async def get_my_conversations(
                 project_title=project.title or "",
                 peer_user_id=peer_id,
                 peer_name=peer.name or "",
+                peer_avatar=peer.avatar,
                 last_message=msg.content,
                 last_message_at=msg.created_at,
             )
