@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
-import { Search, User, LogOut, LogIn, X, Moon, Sun, Menu, Plus, Users, House, Flame, Sparkles, ChevronDown, FolderOpen } from "lucide-react"
+import { Search, User, LogOut, LogIn, X, Moon, Sun, Menu, Plus, Users, House, Flame, Sparkles, ChevronDown, FolderOpen, Bookmark } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NotificationPopover } from "@/components/notification-popover"
@@ -57,6 +57,7 @@ export function Navbar() {
 
   const sidebarLinks = [
     { href: "/", label: "Home", icon: House },
+    { href: "/bookmarks", label: "Bookmarks", icon: Bookmark },
     { href: "/popular", label: "Popular", icon: Flame },
     { href: "/showcase", label: "Showcase", icon: Sparkles },
     { href: "/manage-projects", label: "Manage Projects", icon: Users },
@@ -332,6 +333,12 @@ export function Navbar() {
                       <Link to="/profile" className="cursor-pointer">
                         <User className="mr-2 h-4 w-4" />
                         Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link to="/bookmarks" className="cursor-pointer">
+                        <Bookmark className="mr-2 h-4 w-4" />
+                        Bookmarks
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />

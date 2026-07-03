@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Users, Calendar } from 'lucide-react'
+import { ArrowLeft, Users, Calendar, Bookmark } from 'lucide-react'
 import { Navbar } from '@/components/navbar'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -13,13 +13,21 @@ import { Button } from '@/components/ui/button'
 import { openChatHub } from '@/lib/api-config'
 import type { Comment } from '@/lib/mock-data'
 import { formatTimeAgo } from '@/lib/datetime-display'
+import { useAuth } from '@/lib/auth-context'
+import {
+  deleteBookmark,
+  isBookmarkedByUserAndItem,
+  saveProjectBookmark,
+} from '@/lib/bookmark-api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export function ProjectPage() {
   const { id = '' } = useParams()
+  const { user, isAuthenticated } = useAuth()
   const [project, setProject] = useState<Project | null>(null)
   const [loading, setLoading] = useState(true)
+  const [bookmarked, setBookmarked] = useState(false)
 
   useEffect(() => {
     const fetchProject = async () => {
@@ -43,6 +51,14 @@ export function ProjectPage() {
 
     fetchProject()
   }, [id])
+
+  useEffect(() => {
+    if (!user?.id || !project) {
+      setBookmarked(false)
+      return
+    }
+    void isBookmarkedByUserAndItem(user.id, project.project_id).then(setBookmarked)
+  }, [user?.id, project])
 
   if (loading) {
     return (
@@ -105,6 +121,22 @@ export function ProjectPage() {
   const ownerUserId = project.owner?.user_id
   const acceptedMembers = project.accepted_team_members ?? []
   const filledRoles = project.filled_roles ?? []
+
+  const toggleBookmark = () => {
+    if (!user?.id || !project) return
+    if (bookmarked) {
+      void deleteBookmark(user.id, project.project_id).then(() => setBookmarked(false))
+      return
+    }
+    void saveProjectBookmark({
+      user_id: user.id,
+      item_id: project.project_id,
+      title: project.title,
+      description: project.description,
+      owner_name: ownerName,
+      created_at: project.created_at,
+    }).then(() => setBookmarked(true))
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -222,6 +254,16 @@ export function ProjectPage() {
                   </div>
                 </div>
                 <div className="mt-6 space-y-3">
+                  <Button
+                    type="button"
+                    variant={bookmarked ? "default" : "secondary"}
+                    className="w-full"
+                    disabled={!isAuthenticated}
+                    onClick={toggleBookmark}
+                  >
+                    <Bookmark className="mr-2 h-4 w-4" />
+                    {bookmarked ? "Bookmarked" : "Bookmark"}
+                  </Button>
                   <JoinRequestDialog
                     projectId={project.project_id}
                     projectTitle={project.title}
@@ -253,6 +295,9 @@ export function ProjectPage() {
                     Message owner
                   </Button>
                 </div>
+                {!isAuthenticated && (
+                  <p className="mt-3 text-xs text-muted-foreground">Log in to bookmark this project.</p>
+                )}
               </CardContent>
             </Card>
 
