@@ -19,6 +19,10 @@ export interface Project {
   skills: string[]
   technologies: string[]
   created_at: string
+  /** Optional cover/preview image URL (showcase). May be absent until backend support lands. */
+  image_url?: string | null
+  /** Optional gallery image URLs (showcase). May be absent until backend support lands. */
+  images?: string[]
   applicant_user_names: Array<string | null>
   /** Roles filled by accepted team members. */
   filled_roles?: string[]
