@@ -8,21 +8,24 @@ interface User {
   name: string
   email: string
   avatar?: string
+  role: UserRole
 }
 
+export type UserRole = "student" | "instructor" | "basic"
 type AuthResult = { success: boolean; error?: string }
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<AuthResult>
-  register: (name: string, email: string, password: string) => Promise<AuthResult>
+  register: (name: string, email: string, password: string, role?: UserRole) => Promise<AuthResult>
   logout: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const TOKEN_STORAGE_KEY = "devsync_access_token"
+const ROLE_MAP_STORAGE_KEY = "devsync_user_roles"
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000"
 
 async function readErrorMessage(res: Response): Promise<string> {
@@ -48,6 +51,31 @@ async function readErrorMessage(res: Response): Promise<string> {
 type TokenResponse = { access_token: string; token_type: string }
 type AccountRead = { user_id: string; name: string; email: string; avatar?: string | null }
 
+function readRoleMap(): Record<string, UserRole> {
+  try {
+    const raw = localStorage.getItem(ROLE_MAP_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== "object" || parsed === null) return {}
+    return parsed as Record<string, UserRole>
+  } catch {
+    return {}
+  }
+}
+
+function getRoleForEmail(email: string): UserRole {
+  const map = readRoleMap()
+  return map[email.trim().toLowerCase()] ?? "basic"
+}
+
+function setRoleForEmail(email: string, role: UserRole): void {
+  const key = email.trim().toLowerCase()
+  if (!key) return
+  const map = readRoleMap()
+  map[key] = role
+  localStorage.setItem(ROLE_MAP_STORAGE_KEY, JSON.stringify(map))
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
 
@@ -57,7 +85,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     if (!res.ok) return null
     const me = (await res.json()) as AccountRead
-    return { id: me.user_id, name: me.name, email: me.email, avatar: me.avatar ?? undefined }
+    const role = getRoleForEmail(me.email)
+    return { id: me.user_id, name: me.name, email: me.email, avatar: me.avatar ?? undefined, role }
   }, [])
 
   useEffect(() => {
@@ -101,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const register = useCallback(
-    async (name: string, email: string, password: string): Promise<AuthResult> => {
+    async (name: string, email: string, password: string, role?: UserRole): Promise<AuthResult> => {
       const res = await fetch(`${API_BASE_URL}/users`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,6 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
       if (!res.ok) return { success: false, error: await readErrorMessage(res) }
+      setRoleForEmail(email, role ?? "basic")
 
       // After creating the account, get a token and validate it like login.
       return await login(email, password)

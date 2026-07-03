@@ -19,8 +19,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { useAuth } from "@/lib/auth-context"
+import { type UserRole, useAuth } from "@/lib/auth-context"
 import { API_BASE_URL, TOKEN_STORAGE_KEY } from "@/lib/api-config"
 import { useSearch } from "@/lib/search-context"
 import { useTheme } from "@/lib/theme-context"
@@ -38,6 +45,7 @@ export function Navbar() {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [registerRole, setRegisterRole] = useState<UserRole | "">("")
   const [loginError, setLoginError] = useState("")
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [projectsOpen, setProjectsOpen] = useState(false)
@@ -54,6 +62,19 @@ export function Navbar() {
     { href: "/manage-projects", label: "Manage Projects", icon: Users },
     { href: "/create-project", label: "Create New Project", icon: Plus },
   ]
+  const dashboardLink =
+    user?.role === "instructor"
+      ? { href: "/dashboard/instructor/classes", label: "Instructor Dashboard", icon: Users }
+      : user?.role === "student"
+        ? { href: "/dashboard/student/classes", label: "Student Dashboard", icon: Users }
+        : null
+  const DashboardIcon = dashboardLink?.icon
+  const roleHomePath = (role?: UserRole) =>
+    role === "instructor"
+      ? "/dashboard/instructor/classes"
+      : role === "student"
+        ? "/dashboard/student/classes"
+        : "/"
 
   useEffect(() => {
     if (!sidebarOpen || !isAuthenticated) return
@@ -100,13 +121,20 @@ export function Navbar() {
     e.preventDefault()
     setLoginError("")
     const result =
-      authMode === "login" ? await login(email, password) : await register(name, email, password)
+      authMode === "login"
+        ? await login(email, password)
+        : await register(name, email, password, registerRole || undefined)
     if (result.success) {
       setShowLoginDialog(false)
       setAuthMode("login")
       setName("")
       setEmail("")
       setPassword("")
+      const selectedRole = registerRole || "basic"
+      setRegisterRole("")
+      if (authMode === "register") {
+        navigate(roleHomePath(selectedRole))
+      }
     } else {
       setLoginError(result.error ?? "Authentication failed")
     }
@@ -132,6 +160,19 @@ export function Navbar() {
               </SheetTrigger>
               <SheetContent side="left" className="top-16 h-[calc(100vh-7rem)] w-64 [&>button]:hidden">
                 <nav className="mt-4 flex flex-col gap-2">
+                  {isAuthenticated && dashboardLink && DashboardIcon && (
+                    <Link
+                      to={dashboardLink.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
+                        pathname === dashboardLink.href ? "text-primary" : "text-foreground",
+                      )}
+                    >
+                      <DashboardIcon className="h-4 w-4" />
+                      <span>{dashboardLink.label}</span>
+                    </Link>
+                  )}
                   {sidebarLinks.map((link) => {
                     const Icon = link.icon
                     return (
@@ -331,6 +372,7 @@ export function Navbar() {
             setName("")
             setEmail("")
             setPassword("")
+            setRegisterRole("")
           }
         }}
       >
@@ -370,19 +412,41 @@ export function Navbar() {
             </div>
 
             {authMode === "register" && (
-              <div className="space-y-2">
-                <label htmlFor="name" className="text-sm font-medium">
-                  Name
-                </label>
-                <Input
-                  id="name"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <label htmlFor="name" className="text-sm font-medium">
+                    Name
+                  </label>
+                  <Input
+                    id="name"
+                    type="text"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="role" className="text-sm font-medium">
+                    Role (optional)
+                  </label>
+                  <Select
+                    value={registerRole || "basic"}
+                    onValueChange={(value) =>
+                      setRegisterRole(value === "basic" ? "" : (value as UserRole))
+                    }
+                  >
+                    <SelectTrigger id="role" className="w-full">
+                      <SelectValue placeholder="Choose a role (defaults to basic)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic user (no dashboard role)</SelectItem>
+                      <SelectItem value="student">Student</SelectItem>
+                      <SelectItem value="instructor">Instructor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             )}
 
             <div className="space-y-2">

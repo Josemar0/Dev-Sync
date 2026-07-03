@@ -9,7 +9,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { useAuth } from "@/lib/auth-context"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { type UserRole, useAuth } from "@/lib/auth-context"
 
 interface AuthGuardProps {
   children: ReactNode
@@ -18,10 +25,17 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { isAuthenticated, login, register } = useAuth()
   const navigate = useNavigate()
+  const roleHomePath = (role?: UserRole) =>
+    role === "instructor"
+      ? "/dashboard/instructor/classes"
+      : role === "student"
+        ? "/dashboard/student/classes"
+        : "/"
   const [authMode, setAuthMode] = useState<"login" | "register">("login")
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [registerRole, setRegisterRole] = useState<UserRole | "">("")
   const [error, setError] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,9 +44,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
     const result =
       authMode === "login"
         ? await login(email, password)
-        : await register(name, email, password)
+        : await register(name, email, password, registerRole || undefined)
     if (!result.success) {
       setError(result.error ?? "Authentication failed")
+      return
+    }
+    if (authMode === "register") {
+      navigate(roleHomePath(registerRole || "basic"))
     }
   }
 
@@ -68,6 +86,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
                 onClick={() => {
                   setAuthMode("login")
                   setError("")
+                  setRegisterRole("")
                 }}
               >
                 Log in
@@ -85,19 +104,41 @@ export function AuthGuard({ children }: AuthGuardProps) {
             </div>
 
             {authMode === "register" && (
-              <div className="space-y-2">
-                <label htmlFor="ag-name" className="text-sm font-medium">
-                  Name
-                </label>
-                <Input
-                  id="ag-name"
-                  type="text"
-                  placeholder="Your name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <label htmlFor="ag-name" className="text-sm font-medium">
+                    Name
+                  </label>
+                  <Input
+                    id="ag-name"
+                    type="text"
+                    placeholder="Your name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="ag-role" className="text-sm font-medium">
+                    Role (optional)
+                  </label>
+                  <Select
+                    value={registerRole || "basic"}
+                    onValueChange={(value) =>
+                      setRegisterRole(value === "basic" ? "" : (value as UserRole))
+                    }
+                  >
+                    <SelectTrigger id="ag-role" className="w-full">
+                      <SelectValue placeholder="Choose a role (defaults to basic)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="basic">Basic user (no dashboard role)</SelectItem>
+                      <SelectItem value="student">Student</SelectItem>
+                      <SelectItem value="instructor">Instructor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
             )}
 
             <div className="space-y-2">

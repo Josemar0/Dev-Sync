@@ -19,8 +19,15 @@ import { ManageProjectsPage } from './pages/ManageProjectsPage'
 import { PopularPage } from './pages/PopularPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { ProjectPage } from './pages/ProjectPage'
+import { InstructorClassesPage } from './pages/dashboard/instructor/InstructorClassesPage'
+import { InstructorClassStudentsPage } from './pages/dashboard/instructor/InstructorClassStudentsPage'
+import { InstructorClassProjectsPage } from './pages/dashboard/instructor/InstructorClassProjectsPage'
+import { StudentClassesPage } from './pages/dashboard/student/StudentClassesPage'
+import { StudentClassProjectsPage } from './pages/dashboard/student/StudentClassProjectsPage'
+import { StudentClassMyProjectsPage } from './pages/dashboard/student/StudentClassMyProjectsPage'
 import { UserProfilePage } from './pages/UserProfilePage'
 import { ShowcasePage } from './pages/ShowcasePage'
+import { useAuth } from './lib/auth-context'
 
 function RootLayout() {
   return (
@@ -31,11 +38,22 @@ function RootLayout() {
   )
 }
 
+function RoleAwareHomePage() {
+  const { isAuthenticated, user } = useAuth()
+  if (isAuthenticated && user?.role === "instructor") {
+    return <Navigate to="/dashboard/instructor/classes" replace />
+  }
+  if (isAuthenticated && user?.role === "student") {
+    return <Navigate to="/dashboard/student/classes" replace />
+  }
+  return <HomePage />
+}
+
 const router = createBrowserRouter([
   {
     element: <RootLayout />,
     children: [
-      { path: '/', element: <HomePage /> },
+      { path: '/', element: <RoleAwareHomePage /> },
       { path: '/popular', element: <PopularPage /> },
       { path: '/showcase', element: <ShowcasePage /> },
       { path: '/create-project', element: <CreateProjectPage /> },
@@ -43,6 +61,12 @@ const router = createBrowserRouter([
       { path: '/profile', element: <ProfilePage /> },
       { path: '/users/:userId', element: <UserProfilePage /> },
       { path: '/project/:id', element: <ProjectPage /> },
+      { path: '/dashboard/instructor/classes', element: <InstructorClassesPage /> },
+      { path: '/dashboard/instructor/classes/:id/students', element: <InstructorClassStudentsPage /> },
+      { path: '/dashboard/instructor/classes/:id/projects', element: <InstructorClassProjectsPage /> },
+      { path: '/dashboard/student/classes', element: <StudentClassesPage /> },
+      { path: '/dashboard/student/classes/:id/projects', element: <StudentClassProjectsPage /> },
+      { path: '/dashboard/student/classes/:id/my-projects', element: <StudentClassMyProjectsPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
