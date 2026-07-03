@@ -14,6 +14,7 @@ import { SearchProvider } from './lib/search-context'
 import { ThemeProvider } from './lib/theme-context'
 import { MessagingHub } from './components/messaging-hub'
 import { CreateProjectPage } from './pages/CreateProjectPage'
+import { BookmarksPage } from './pages/BookmarksPage'
 import { HomePage } from './pages/HomePage'
 import { ManageProjectsPage } from './pages/ManageProjectsPage'
 import { PopularPage } from './pages/PopularPage'
@@ -39,6 +40,7 @@ const router = createBrowserRouter([
       { path: '/popular', element: <PopularPage /> },
       { path: '/showcase', element: <ShowcasePage /> },
       { path: '/create-project', element: <CreateProjectPage /> },
+      { path: '/bookmarks', element: <BookmarksPage /> },
       { path: '/manage-projects', element: <ManageProjectsPage /> },
       { path: '/profile', element: <ProfilePage /> },
       { path: '/users/:userId', element: <UserProfilePage /> },
