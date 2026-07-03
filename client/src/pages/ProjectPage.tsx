@@ -79,6 +79,7 @@ export function ProjectPage() {
       id: c.comment_id,
       projectId: c.project_id,
       author: {
+        user_id: c.user_id,
         name: c.user?.name ?? 'Unknown User',
         avatar: c.user?.avatar ?? undefined,
       },
@@ -184,7 +185,12 @@ export function ProjectPage() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-sm font-medium">{display}</p>
+                          <Link
+                            to={`/users/${member.user_id}`}
+                            className="text-sm font-medium hover:text-primary hover:underline"
+                          >
+                            {display}
+                          </Link>
                           <p className="text-xs text-muted-foreground">
                             {member.project_role?.trim() || 'Team member'}
                           </p>
