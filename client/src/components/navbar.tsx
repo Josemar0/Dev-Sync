@@ -158,7 +158,7 @@ export function Navbar() {
                   <span className="sr-only">Open navigation menu</span>
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="top-16 h-[calc(100vh-7rem)] w-64 [&>button]:hidden">
+              <SheetContent side="left" className="top-16 h-[calc(100dvh-4rem)] w-64 [&>button]:hidden">
                 <nav className="mt-4 flex flex-col gap-2">
                   {isAuthenticated && dashboardLink && DashboardIcon && (
                     <Link
